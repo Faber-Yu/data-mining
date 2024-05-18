@@ -1,26 +1,16 @@
-# Import necessary modules
-import os
 import pandas as pd
 import numpy as np
 from scipy.sparse import csr_matrix
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split, ParameterGrid
-import networkx as nx
+from sklearn.metrics import accuracy_score, precision_score, recall_score, mean_squared_error
 from implicit.als import AlternatingLeastSquares
+import networkx as nx
+from sklearn.model_selection import ParameterGrid
+import time
+import matplotlib.pyplot as plt
 
-# Set OpenBLAS to use a single thread
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-
-# Load data
+# Read data from CSV
 data = pd.read_csv('soc-sign-bitcoinotc.csv', header=None, names=['Source', 'Target', 'Weight', 'Date'])
 
-# Create directed graph
-G = nx.DiGraph()
-for row in data.itertuples():
-    G.add_edge(row.Source, row.Target, weight=row.Weight)
-
-# Calculate clustering coefficient
 def signed_weighted_clustering_coefficient(G):
     clustering_coeffs = {}
     for node in G.nodes():
@@ -28,10 +18,10 @@ def signed_weighted_clustering_coefficient(G):
         if len(neighbors) < 2:
             clustering_coeffs[node] = 0.0
             continue
-
+        
         triangles = 0
         total_triplets = 0
-
+        
         for i in range(len(neighbors)):
             for j in range(i + 1, len(neighbors)):
                 u, v = neighbors[i], neighbors[j]
@@ -39,146 +29,190 @@ def signed_weighted_clustering_coefficient(G):
                     total_triplets += 1
                     if (G.has_edge(u, node) and G.has_edge(node, v) and G.has_edge(u, v)) and (G[u][node]['weight'] * G[node][v]['weight'] * G[u][v]['weight']) > 0:
                         triangles += 1
-
+        
         if total_triplets == 0:
             clustering_coeffs[node] = 0.0
         else:
             clustering_coeffs[node] = triangles / total_triplets
-
+    
     return clustering_coeffs
 
-# Calculate clustering coefficient
+def calculate_coefficients(G):
+    common_neighbors = {}
+    jaccard_coefficient = {}
+    preferential_attachment = {}
+    adamic_adar = {}
+    resource_allocation = {}
+    local_clustering = {}
+    
+    for idx, edge in enumerate(G.edges()):
+        if idx % 1000 == 0:
+            print(f"Processed {idx} edges for coefficients calculation.")
+        u, v = edge
+        
+        predecessors_u = set(G.predecessors(u))
+        predecessors_v = set(G.predecessors(v))
+        
+        common_neighbors[edge] = len(predecessors_u & predecessors_v)
+        
+        union_neighbors = len(predecessors_u | predecessors_v)
+        jaccard_coefficient[edge] = common_neighbors[edge] / union_neighbors if union_neighbors != 0 else 0
+        
+        preferential_attachment[edge] = len(predecessors_u) * len(predecessors_v)
+        
+        adamic_adar[edge] = sum(1 / np.log(len(list(G.successors(x)))) for x in predecessors_u & predecessors_v if len(list(G.successors(x))) > 1)
+        
+        resource_allocation[edge] = sum(1 / len(list(G.successors(x))) for x in predecessors_u & predecessors_v if len(list(G.successors(x))) > 0)
+        
+        local_clustering[u] = nx.clustering(G, u, weight='weight')
+        local_clustering[v] = nx.clustering(G, v, weight='weight')
+    
+    return common_neighbors, jaccard_coefficient, preferential_attachment, adamic_adar, resource_allocation, local_clustering
+
+# Create a directed graph
+G = nx.DiGraph()
+for row in data.itertuples():
+    G.add_edge(row.Source, row.Target, weight=row.Weight)
+
+print("Graph construction completed.")
+
+# Calculate signed weighted clustering coefficient
+start_time = time.time()
 clustering_coeffs = signed_weighted_clustering_coefficient(G)
 average_clustering_coeff = np.mean(list(clustering_coeffs.values()))
 print(f'Average Weighted Signed Clustering Coefficient: {average_clustering_coeff}')
+print(f'Clustering coefficient calculation time: {time.time() - start_time} seconds')
 
-# Function to compute common neighbors
-def common_neighbors(G, u, v):
-    return len(set(G.successors(u)).intersection(set(G.predecessors(v))))
+# Calculate other coefficients
+start_time = time.time()
+common_neighbors, jaccard_coefficient, preferential_attachment, adamic_adar, resource_allocation, local_clustering = calculate_coefficients(G)
+print(f'Coefficient calculation time: {time.time() - start_time} seconds')
 
-# Function to compute Jaccard's Coefficient
-def jaccard_coefficient(G, u, v):
-    neighbors_u = set(G.successors(u)).union(set(G.predecessors(u)))
-    neighbors_v = set(G.successors(v)).union(set(G.predecessors(v)))
-    intersection = neighbors_u.intersection(neighbors_v)
-    union = neighbors_u.union(neighbors_v)
-    if len(union) == 0:
-        return 0
-    return len(intersection) / len(union)
+# Filter positive edges
+positive_links = data[data['Weight'] > 0]
 
-# Function to compute Preferential Attachment
-def preferential_attachment(G, u, v):
-    return G.degree(u) * G.degree(v)
-
-# Function to compute Adamic-Adar Coefficient
-def adamic_adar(G, u, v):
-    common_neighbors = set(G.successors(u)).intersection(set(G.predecessors(v)))
-    return sum(1 / np.log(G.degree(w)) for w in common_neighbors)
-
-# Function to compute Resource Allocation Index
-def resource_allocation(G, u, v):
-    common_neighbors = set(G.successors(u)).intersection(set(G.predecessors(v)))
-    return sum(1 / G.degree(w) for w in common_neighbors)
-
-# Create the training matrix for ALS
-num_users = data['Source'].max() + 1
-num_items = data['Target'].max() + 1
+# Prepare the training matrix with only positive edges
+num_users = positive_links['Source'].max() + 1
+num_items = positive_links['Target'].max() + 1
 train_matrix = np.zeros((num_users, num_items))
 
-# Fill in the training matrix
-for row in data.itertuples():
+# Fill in the training matrix with only positive edges
+for row in positive_links.itertuples():
     train_matrix[row.Source, row.Target] = row.Weight
 
-# Convert to sparse matrix format (CSR)
+# Change the train_matrix to CSR matrix format and transpose it for ALS expects item-user matrix
 train_matrix = csr_matrix(train_matrix).T
 
-# Define ALS parameter grid
-param_grid = {
-    'factors': [10, 50, 100],
-    'regularization': [0.01, 0.1, 1],
-    'iterations': [50, 100]
-}
-
-# Function to predict the weight of an edge using ALS
-def predict_weight_als(model, user, item):
+def predict_sign_als(model, user, item):
     user_vector = model.user_factors[user, :]
     item_vector = model.item_factors[item, :]
     prediction = user_vector.dot(item_vector)
-    return prediction
+    return 1 if prediction > 0 else -1
 
-# Grid search for ALS model
-best_mse = float('inf')
+def predict_weight_als(model, user, item):
+    user_vector = model.user_factors[user, :]
+    item_vector = model.item_factors[item, :]
+    return user_vector.dot(item_vector)
+
+def generate_weight_predictions(model, data, common_neighbors, jaccard_coefficient, preferential_attachment, adamic_adar, resource_allocation, local_clustering):
+    predictions = []
+    true_labels = []
+    for idx, row in enumerate(data.itertuples()):
+        if idx % 1000 == 0:
+            print(f"Processed {idx} rows for weight predictions.")
+        true_labels.append(int(row.Weight))  # Ensure true_labels are integers
+        
+        # Extract coefficients for the current edge
+        common_neighbors_val = common_neighbors.get((row.Source, row.Target), 0)
+        jaccard_coefficient_val = jaccard_coefficient.get((row.Source, row.Target), 0)
+        preferential_attachment_val = preferential_attachment.get((row.Source, row.Target), 0)
+        adamic_adar_val = adamic_adar.get((row.Source, row.Target), 0)
+        resource_allocation_val = resource_allocation.get((row.Source, row.Target), 0)
+        local_clustering_source = local_clustering.get(row.Source, 0)
+        local_clustering_target = local_clustering.get(row.Target, 0)
+        
+        # Append features to the feature list
+        feature = [
+            common_neighbors_val, 
+            jaccard_coefficient_val, 
+            preferential_attachment_val, 
+            adamic_adar_val, 
+            resource_allocation_val, 
+            local_clustering_source,
+            local_clustering_target
+            # Add more features as needed
+        ]
+        
+        # Reshape the feature list to fit the model input
+        X_train = np.array(feature).reshape(1, -1)
+        
+        # Predict the weight using the ALS model
+        predicted_weight = predict_weight_als(model, row.Target, row.Source)
+        
+        # Convert the predicted weight to a binary class label based on a threshold
+        threshold = 0  # Define your threshold here
+        predicted_label = 1 if predicted_weight > threshold else -1
+        
+        predictions.append(predicted_label)
+        
+    return true_labels, np.array(predictions)
+
+# Grid search for the best parameters
+param_grid = {
+    'factors': [50],  # You can add more values like [10, 50, 100],
+    'regularization': [0.01],  # You can add more values like [0.01, 0.1, 1],
+    'iterations': [100]  # You can add more values like [50, 100]
+}
+
+best_accuracy = 0
+best_precision = 0
+best_recall = 0
 best_params = None
-best_als_model = None
+
+best_mse = np.inf
+best_params_mse = None
 
 for params in ParameterGrid(param_grid):
-    print(f"Evaluating ALS model with params: {params}")  # Print current parameters
-    als_model = AlternatingLeastSquares(**params)
-    als_model.fit(train_matrix)
-
-    # Create features and labels
-    features = []
-    labels = []
-
-    for row in data.itertuples():
-        u, v = row.Source, row.Target
-        weight = row.Weight
-
-        cn = common_neighbors(G, u, v)
-        jc = jaccard_coefficient(G, u, v)
-        pa = preferential_attachment(G, u, v)
-        aa = adamic_adar(G, u, v)
-        ra = resource_allocation(G, u, v)
-        cc_u = clustering_coeffs.get(u, 0)
-        cc_v = clustering_coeffs.get(v, 0)
-        als_prediction = predict_weight_als(als_model, v, u)
-
-        features.append([cn, jc, pa, aa, ra, cc_u, cc_v, als_prediction])
-        labels.append(weight)
-
-    # Convert to numpy arrays
-    X = np.array(features)
-    y = np.array(labels)
-
-    # Split data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    # Train Linear Regression model
-    reg = LinearRegression()
-    reg.fit(X_train, y_train)
-
-    # Predict on test set
-    y_pred = reg.predict(X_test)
-
-    # Evaluate model
-    mse = mean_squared_error(y_test, y_pred)
-    print(f"Mean Squared Error for params {params}: {mse}")
-
+    print(f"Training ALS model with parameters: {params}")
+    als = AlternatingLeastSquares(**params)
+    als.fit(train_matrix)
+    
+    true_labels, predictions = generate_weight_predictions(als, data, common_neighbors, jaccard_coefficient, preferential_attachment, adamic_adar, resource_allocation, local_clustering)
+    accuracy = accuracy_score(true_labels, predictions)
+    precision = precision_score(true_labels, predictions, average='macro')
+    recall = recall_score(true_labels, predictions, average='macro')
+    
+    mse = mean_squared_error(true_labels, predictions)
+    
+    if accuracy > best_accuracy:
+        best_accuracy = accuracy
+        best_precision = precision
+        best_recall = recall
+        best_params = params
+    
     if mse < best_mse:
         best_mse = mse
-        best_params = params
-        best_als_model = als_model
+        best_params_mse = params
 
-print(f'Best ALS Parameters: {best_params}')
-print(f'Best Combined Model Mean Squared Error: {best_mse}')
-print("Nodes in the graph:", list(G.nodes)[:10])  # Print first 10 nodes for verification
+# Plot the regression results
+plt.scatter(true_labels, predictions, color='blue', label='Data Points')  # Scatter plot of data points
+plt.plot(true_labels, predictions, color='red', label='Regression Line')  # Plotting the regression line
+plt.xlabel('True Labels')  # Label for x-axis
+plt.ylabel('Predicted Values')  # Label for y-axis
+plt.title('Linear Regression')  # Title of the plot
+plt.legend()  # Show legend
+plt.grid(True)  # Show grid
+plt.show()  # Display the plot
 
-# Example of making a prediction for a single edge using valid node IDs
-valid_node_u = list(G.nodes)[0]  # First node
-valid_node_v = list(G.nodes)[1]  # Second node
+print(f'Best Accuracy: {best_accuracy}')
+print(f'Best Precision: {best_precision}')
+print(f'Best Recall: {best_recall}')
+print(f'Best Parameters for Accuracy: {best_params}')
 
-test_features = [[
-    common_neighbors(G, valid_node_u, valid_node_v),
-    jaccard_coefficient(G, valid_node_u, valid_node_v),
-    preferential_attachment(G, valid_node_u, valid_node_v),
-    adamic_adar(G, valid_node_u, valid_node_v),
-    resource_allocation(G, valid_node_u, valid_node_v),
-    clustering_coeffs.get(valid_node_u, 0),
-    clustering_coeffs.get(valid_node_v, 0),
-    predict_weight_als(best_als_model, valid_node_v, valid_node_u)
-]]
+print(f'Best MSE: {best_mse}')
+print(f'Best Parameters for MSE: {best_params_mse}')
 
-predicted_weight = reg.predict(test_features)
-print(f'Predicted weight for edge ({valid_node_u}, {valid_node_v}): {predicted_weight}')
+print(f'Done!')
+
 
 
