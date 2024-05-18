@@ -1,11 +1,16 @@
+# Import necessary modules
+import os
 import pandas as pd
 import numpy as np
 from scipy.sparse import csr_matrix
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, ParameterGrid
 import networkx as nx
 from implicit.als import AlternatingLeastSquares
+
+# Set OpenBLAS to use a single thread
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 # Load data
 data = pd.read_csv('soc-sign-bitcoinotc.csv', header=None, names=['Source', 'Target', 'Weight', 'Date'])
@@ -84,59 +89,78 @@ train_matrix = np.zeros((num_users, num_items))
 for row in data.itertuples():
     train_matrix[row.Source, row.Target] = row.Weight
 
-# Convert to sparse matrix format and transpose for ALS
+# Convert to sparse matrix format (CSR)
 train_matrix = csr_matrix(train_matrix).T
 
-# Train ALS model
-als_model = AlternatingLeastSquares(factors=50, regularization=0.01, iterations=100)
-als_model.fit(train_matrix)
+# Define ALS parameter grid
+param_grid = {
+    'factors': [10, 50, 100],
+    'regularization': [0.01, 0.1, 1],
+    'iterations': [50, 100]
+}
 
 # Function to predict the weight of an edge using ALS
-def predict_weight_als(user, item):
-    user_vector = als_model.user_factors[user, :]
-    item_vector = als_model.item_factors[item, :]
+def predict_weight_als(model, user, item):
+    user_vector = model.user_factors[user, :]
+    item_vector = model.item_factors[item, :]
     prediction = user_vector.dot(item_vector)
     return prediction
 
-# Create a DataFrame for features and labels
-features = []
-labels = []
+# Grid search for ALS model
+best_mse = float('inf')
+best_params = None
+best_als_model = None
 
-for row in data.itertuples():
-    u, v = row.Source, row.Target
-    weight = row.Weight
-    
-    cn = common_neighbors(G, u, v)
-    jc = jaccard_coefficient(G, u, v)
-    pa = preferential_attachment(G, u, v)
-    aa = adamic_adar(G, u, v)
-    ra = resource_allocation(G, u, v)
-    cc_u = clustering_coeffs.get(u, 0)
-    cc_v = clustering_coeffs.get(v, 0)
-    als_prediction = predict_weight_als(v, u)  # ALS expects item-user matrix
+for params in ParameterGrid(param_grid):
+    print(f"Evaluating ALS model with params: {params}")  # Print current parameters
+    als_model = AlternatingLeastSquares(**params)
+    als_model.fit(train_matrix)
 
-    features.append([cn, jc, pa, aa, ra, cc_u, cc_v, als_prediction])
-    labels.append(weight)
+    # Create features and labels
+    features = []
+    labels = []
 
-# Convert to numpy arrays
-X = np.array(features)
-y = np.array(labels)
+    for row in data.itertuples():
+        u, v = row.Source, row.Target
+        weight = row.Weight
 
-# Split data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        cn = common_neighbors(G, u, v)
+        jc = jaccard_coefficient(G, u, v)
+        pa = preferential_attachment(G, u, v)
+        aa = adamic_adar(G, u, v)
+        ra = resource_allocation(G, u, v)
+        cc_u = clustering_coeffs.get(u, 0)
+        cc_v = clustering_coeffs.get(v, 0)
+        als_prediction = predict_weight_als(als_model, v, u)
 
-# Train Linear Regression model
-reg = LinearRegression()
-reg.fit(X_train, y_train)
+        features.append([cn, jc, pa, aa, ra, cc_u, cc_v, als_prediction])
+        labels.append(weight)
 
-# Predict on test set
-y_pred = reg.predict(X_test)
+    # Convert to numpy arrays
+    X = np.array(features)
+    y = np.array(labels)
 
-# Evaluate model
-mse = mean_squared_error(y_test, y_pred)
-print(f'Combined Model Mean Squared Error: {mse}')
+    # Split data into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Verify the nodes in the graph
+    # Train Linear Regression model
+    reg = LinearRegression()
+    reg.fit(X_train, y_train)
+
+    # Predict on test set
+    y_pred = reg.predict(X_test)
+
+    # Evaluate model
+    mse = mean_squared_error(y_test, y_pred)
+    print(f"Mean Squared Error for params {params}: {mse}")
+
+    if mse < best_mse:
+        best_mse = mse
+        best_params = params
+        best_als_model = als_model
+
+print(f'Best ALS Parameters: {best_params}')
+print(f'Best Combined Model Mean Squared Error: {best_mse}')
 print("Nodes in the graph:", list(G.nodes)[:10])  # Print first 10 nodes for verification
 
 # Example of making a prediction for a single edge using valid node IDs
@@ -151,9 +175,10 @@ test_features = [[
     resource_allocation(G, valid_node_u, valid_node_v),
     clustering_coeffs.get(valid_node_u, 0),
     clustering_coeffs.get(valid_node_v, 0),
-    predict_weight_als(valid_node_v, valid_node_u)
+    predict_weight_als(best_als_model, valid_node_v, valid_node_u)
 ]]
 
 predicted_weight = reg.predict(test_features)
 print(f'Predicted weight for edge ({valid_node_u}, {valid_node_v}): {predicted_weight}')
+
 
