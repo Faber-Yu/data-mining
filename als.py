@@ -140,7 +140,7 @@ def generate_weight_predictions(model, data, common_neighbors, jaccard_coefficie
             resource_allocation_val, 
             local_clustering_source,
             local_clustering_target
-            # Add more features as needed
+            
         ]
         
         # Reshape the feature list to fit the model input
@@ -150,7 +150,7 @@ def generate_weight_predictions(model, data, common_neighbors, jaccard_coefficie
         predicted_weight = predict_weight_als(model, row.Target, row.Source)
         
         # Convert the predicted weight to a binary class label based on a threshold
-        threshold = 0  # Define your threshold here
+        threshold = 0  
         predicted_label = 1 if predicted_weight > threshold else -1
         
         predictions.append(predicted_label)
@@ -159,9 +159,9 @@ def generate_weight_predictions(model, data, common_neighbors, jaccard_coefficie
 
 # Grid search for the best parameters
 param_grid = {
-    'factors': [50],  # You can add more values like [10, 50, 100],
-    'regularization': [0.01],  # You can add more values like [0.01, 0.1, 1],
-    'iterations': [100]  # You can add more values like [50, 100]
+    'factors': [50],  
+    'regularization': [0.01],  
+    'iterations': [100]  
 }
 
 best_accuracy = 0
