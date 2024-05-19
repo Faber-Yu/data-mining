@@ -88,17 +88,16 @@ start_time = time.time()
 common_neighbors, jaccard_coefficient, preferential_attachment, adamic_adar, resource_allocation, local_clustering = calculate_coefficients(G)
 print(f'Coefficient calculation time: {time.time() - start_time} seconds')
 
-# Ground truth: Positive links are those with a positive weight, negative links are those with a negative weight
+# Filter positive edges
 positive_links = data[data['Weight'] > 0]
-negative_links = data[data['Weight'] < 0]
 
-# Prepare the training matrix
-num_users = data['Source'].max() + 1
-num_items = data['Target'].max() + 1
+# Prepare the training matrix with only positive edges
+num_users = positive_links['Source'].max() + 1
+num_items = positive_links['Target'].max() + 1
 train_matrix = np.zeros((num_users, num_items))
 
-# Fill in the training matrix
-for row in data.itertuples():
+# Fill in the training matrix with only positive edges
+for row in positive_links.itertuples():
     train_matrix[row.Source, row.Target] = row.Weight
 
 # Change the train_matrix to CSR matrix format and transpose it for ALS expects item-user matrix
@@ -121,7 +120,7 @@ def generate_weight_predictions(model, data, common_neighbors, jaccard_coefficie
     for idx, row in enumerate(data.itertuples()):
         if idx % 1000 == 0:
             print(f"Processed {idx} rows for weight predictions.")
-        true_labels.append(int(row.Weight))  
+        true_labels.append(int(row.Weight))  # Ensure true_labels are integers
         
         # Extract coefficients for the current edge
         common_neighbors_val = common_neighbors.get((row.Source, row.Target), 0)
@@ -161,7 +160,7 @@ def generate_weight_predictions(model, data, common_neighbors, jaccard_coefficie
 # Grid search for the best parameters
 param_grid = {
     'factors': [50],  
-    'regularization': [0.01],  
+    'regularization': [0.01], 
     'iterations': [100]  
 }
 
@@ -195,7 +194,8 @@ for params in ParameterGrid(param_grid):
         best_mse = mse
         best_params_mse = params
 
-        plt.scatter(true_labels, predictions, color='blue', label='Data Points')  # Scatter plot of data points
+# Plot the regression results
+plt.scatter(true_labels, predictions, color='blue', label='Data Points')  # Scatter plot of data points
 plt.plot(true_labels, predictions, color='red', label='Regression Line')  # Plotting the regression line
 plt.xlabel('True Labels')  # Label for x-axis
 plt.ylabel('Predicted Values')  # Label for y-axis
@@ -213,6 +213,7 @@ print(f'Best MSE: {best_mse}')
 print(f'Best Parameters for MSE: {best_params_mse}')
 
 print(f'Done!')
+
 
 
 
