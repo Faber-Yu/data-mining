@@ -51,24 +51,14 @@ The study demonstrates that deep learning models outperform ALS in terms of pred
 
 ## Individual Contributions
 
-- **Changrong Li (李昶融)**: Project coordination, ALS work (literature research, theoretical derivation, development, deployment, result analysis, performance optimisation), report writing (full-text quality control, title, data processing, ALS chapters, appendix).
+- **Zhiqiang Yu (余志强)**: Theoretical research, literature review, validation of deep learning methods, verifying the accuracy and effectiveness of deep learning methods in collaboration with Ziyun, report writing (introduction, methods, machine learning section, discussion, conclusion).
+- **Ziyun Pan (潘梓韫)**: Application of deep learning methods, data preprocessing, and dataset splitting, report writing (introduction, methods, machine learning section, discussion, conclusion).
+- **Changrong Li (李昶融)**: Project coordination, ALS work (literature research, theoretical derivation, development, deployment, result analysis, performance optimisation), report writing (full-text quality control, title, data processing, ALS section, appendix).
 - **Mānūśrī Tyāgī (मांनुश्री त्यागी)**: Initial proposal frame, ALS work with Changrong Li (development of 3 metrics), summary generation.
-- **Zhiqiang Yu (余志强)**: Theoretical research, literature review, validation of deep learning methods.
-- **Ziyun Pan (潘梓韫)**: Application of deep learning methods, data preprocessing, and dataset splitting.
 
 ## Future Work
 
 Future research will address data imbalances using techniques like SMOTE or GANs, enhance model scalability, and perform a cost-benefit analysis for practical applications.
-
-## Evaluation
-
-> - Jun 17 at 1:34pm
-> 
-> Good report! The results part could have been improved. It could have been nice to include some more evaluation metrics other than MSE to compare your methods + use confidence intervals (table 3) - Rémi Bourgerie (teaching assistant)
-> 
-> - Jun 17 at 1:34pm
-> 
-> Since it is visible from the "Individual Contribution" section that you were the main coordinator and were overseeing all parts of this project, we will give you maximum points for this effort. - Sarunas Girdzijauskas (lecturer, examiner)
 
 ## License
 
